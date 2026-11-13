@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayOutputStream;
+import java.nio.charset.StandardCharsets;
 
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
@@ -14,7 +15,15 @@ import org.apache.pdfbox.pdmodel.common.PDMetadata;
 import org.apache.xmpbox.XMPMetadata;
 import org.apache.xmpbox.schema.AdobePDFSchema;
 import org.apache.xmpbox.schema.DublinCoreSchema;
+import org.apache.xmpbox.XmpConstants;
+import org.apache.xmpbox.schema.PDFAExtensionSchema;
 import org.apache.xmpbox.schema.XMPBasicSchema;
+import org.apache.xmpbox.schema.XMPSchema;
+import org.apache.xmpbox.type.ArrayProperty;
+import org.apache.xmpbox.type.Attribute;
+import org.apache.xmpbox.type.Cardinality;
+import org.apache.xmpbox.type.DefinedStructuredType;
+import org.apache.xmpbox.type.TextType;
 import org.apache.xmpbox.xml.DomXmpParser;
 import org.apache.xmpbox.xml.XmpSerializer;
 import org.junit.jupiter.api.Test;
@@ -157,6 +166,91 @@ public class ZUGFeRDExporterFromA3Test {
 
 			assertDescriptiveMetadata(exporter, null, null, null);
 		}
+	}
+
+	@Test
+	public void testRepeatedExportWithoutOverwriteDoesNotDuplicateXmpSchemas() throws Exception {
+		byte[] firstPass;
+		try (ZUGFeRDExporterFromA3 exporter = new ZUGFeRDExporterFromA3()) {
+			exporter.load(createPdfWithPresetMetadata());
+			exporter.overwrite = false;
+			exporter.prepareDocument();
+			firstPass = save(exporter.doc);
+		}
+
+		try (ZUGFeRDExporterFromA3 exporter = new ZUGFeRDExporterFromA3()) {
+			exporter.load(firstPass);
+			exporter.overwrite = false;
+			exporter.prepareDocument();
+
+			PDMetadata meta = exporter.doc.getDocumentCatalog().getMetadata();
+			DomXmpParser parser = new DomXmpParser();
+			parser.setStrictParsing(false);
+			XMPMetadata xmp = parser.parse(meta.toByteArray());
+
+			assertEquals(1, countSchemas(xmp, PDFA_EXTENSION_NAMESPACE));
+			assertEquals(1, countSchemas(xmp, exporter.getNamespaceForVersion(exporter.zfVersion)));
+
+			String raw = new String(meta.toByteArray(), StandardCharsets.UTF_8);
+			assertEquals(1, countOccurrences(raw, "<pdfaSchema:namespaceURI>"));
+			assertEquals(1, countOccurrences(raw, "<" + exporter.getPrefixForVersion(exporter.zfVersion) + ":DocumentFileName>"));
+		}
+	}
+
+	@Test
+	public void testExportWithoutOverwriteKeepsForeignExtensionSchema() throws Exception {
+		XMPMetadata input = XMPMetadata.createXMPMetadata();
+		input.createAndAddDublinCoreSchema().setDescription(PRESET_DESCRIPTION);
+		PDFAExtensionSchema foreign = new PDFAExtensionSchema(input);
+		foreign.addNamespace("http://www.aiim.org/pdfa/ns/schema#", "pdfaSchema");
+		foreign.addNamespace("http://www.aiim.org/pdfa/ns/property#", "pdfaProperty");
+		ArrayProperty bag = new ArrayProperty(input, foreign.getNamespace(), foreign.getPrefix(), "schemas", Cardinality.Bag);
+		DefinedStructuredType li = new DefinedStructuredType(input, foreign.getNamespace(), foreign.getPrefix(), XmpConstants.LIST_NAME);
+		li.setAttribute(new Attribute(foreign.getNamespace(), XmpConstants.PARSE_TYPE, XmpConstants.RESOURCE_NAME));
+		li.addProperty(new TextType(input, "http://www.aiim.org/pdfa/ns/schema#", "pdfaSchema", "schema", "Foreign Schema"));
+		li.addProperty(new TextType(input, "http://www.aiim.org/pdfa/ns/schema#", "pdfaSchema", "namespaceURI", FOREIGN_NAMESPACE));
+		li.addProperty(new TextType(input, "http://www.aiim.org/pdfa/ns/schema#", "pdfaSchema", "prefix", "foreign"));
+		bag.addProperty(li);
+		foreign.addProperty(bag);
+		input.addSchema(foreign);
+
+		try (ZUGFeRDExporterFromA3 exporter = new ZUGFeRDExporterFromA3()) {
+			exporter.load(createPdfWithXmp(input));
+			exporter.overwrite = false;
+			exporter.prepareDocument();
+
+			PDMetadata meta = exporter.doc.getDocumentCatalog().getMetadata();
+			DomXmpParser parser = new DomXmpParser();
+			parser.setStrictParsing(false);
+			XMPMetadata xmp = parser.parse(meta.toByteArray());
+			assertEquals(1, countSchemas(xmp, PDFA_EXTENSION_NAMESPACE));
+
+			String raw = new String(meta.toByteArray(), StandardCharsets.UTF_8);
+			assertEquals(2, countOccurrences(raw, "<pdfaSchema:namespaceURI>"));
+			assertTrue(raw.contains(FOREIGN_NAMESPACE));
+			assertTrue(raw.contains(exporter.getNamespaceForVersion(exporter.zfVersion)));
+		}
+	}
+
+	private static final String PDFA_EXTENSION_NAMESPACE = "http://www.aiim.org/pdfa/ns/extension/";
+	private static final String FOREIGN_NAMESPACE = "http://example.org/foreign/ns#";
+
+	private int countSchemas(XMPMetadata xmp, String namespace) {
+		int count = 0;
+		for (XMPSchema schema : xmp.getAllSchemas()) {
+			if (namespace.equals(schema.getNamespace())) {
+				count++;
+			}
+		}
+		return count;
+	}
+
+	private int countOccurrences(String haystack, String needle) {
+		int count = 0;
+		for (int idx = haystack.indexOf(needle); idx >= 0; idx = haystack.indexOf(needle, idx + needle.length())) {
+			count++;
+		}
+		return count;
 	}
 
 	private void assertDescriptiveMetadata(ZUGFeRDExporterFromA3 exporter, String title, String subject, String keywords) throws Exception {

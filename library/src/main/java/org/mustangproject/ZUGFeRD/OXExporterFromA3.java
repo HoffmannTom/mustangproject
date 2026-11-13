@@ -450,11 +450,11 @@ public class OXExporterFromA3 extends ZUGFeRDExporterFromA3 {
 					"order-x.xml");
 			zf.setType(this.orderXDocumentType);
 
-			metadata.addSchema(zf);
+			replaceSchema(metadata, zf);
 			// also add the schema extensions...
 			XMPSchemaPDFAExtensions pdfaex = new XMPSchemaPDFAExtensions(this, metadata, 1, attachZUGFeRDHeaders, EStandard.ORDER_X);
 			pdfaex.setZUGFeRDVersion(1);
-			metadata.addSchema(pdfaex);
+			mergePDFAExtensionSchema(metadata, pdfaex);
 		}
 
 	}

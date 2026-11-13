@@ -472,11 +472,11 @@ public class DXExporterFromA3 extends ZUGFeRDExporterFromA3 {
 					"cida.xml", "1.0");
 			zf.setType(this.despatchAdviceDocumentType);
 
-			metadata.addSchema(zf);
+			replaceSchema(metadata, zf);
 			// also add the schema extensions...
 			XMPSchemaPDFAExtensions pdfaex = new XMPSchemaPDFAExtensions(this, metadata, 1, attachZUGFeRDHeaders, EStandard.DELIVER_X);
 			pdfaex.setZUGFeRDVersion(1);
-			metadata.addSchema(pdfaex);
+			mergePDFAExtensionSchema(metadata, pdfaex);
 		}
 
 	}

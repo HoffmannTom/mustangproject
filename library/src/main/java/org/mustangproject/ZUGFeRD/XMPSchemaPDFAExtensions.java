@@ -27,9 +27,17 @@ package org.mustangproject.ZUGFeRD;
  * @author jstaerk
  */
 
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
+
 import org.apache.xmpbox.XMPMetadata;
 import org.apache.xmpbox.XmpConstants;
 import org.apache.xmpbox.schema.PDFAExtensionSchema;
+import org.apache.xmpbox.type.AbstractComplexProperty;
+import org.apache.xmpbox.type.AbstractField;
+import org.apache.xmpbox.type.AbstractSimpleProperty;
 import org.apache.xmpbox.type.ArrayProperty;
 import org.apache.xmpbox.type.Attribute;
 import org.apache.xmpbox.type.Cardinality;
@@ -109,6 +117,49 @@ public class XMPSchemaPDFAExtensions extends PDFAExtensionSchema {
 		parent.addProperty(li);
 
 		return li;
+	}
+
+	/**
+	 * Takes over the schema descriptions of another PDF/A extension schema, e.g. the one of the input PDF.
+	 * Descriptions of namespaces which this schema describes itself are not taken over.
+	 *
+	 * @param other the PDF/A extension schema to take the descriptions from
+	 */
+	public void takeOverSchemaDescriptions(PDFAExtensionSchema other) {
+		ArrayProperty otherBag = other.getSchemasProperty();
+		if (otherBag == null) {
+			return;
+		}
+
+		// add all namespaces of the other schema which are not yet known to this schema
+		for (Map.Entry<String, String> ns : other.getAllNamespacesWithPrefix().entrySet()) {
+			if (getNamespacePrefix(ns.getKey()) == null) {
+				addNamespace(ns.getKey(), ns.getValue());
+			}
+		}
+		// collect current namespaces described by this schema, so that we don't take over duplicates
+		ArrayProperty bag = getSchemasProperty();
+		Set<String> describedNamespaces = new HashSet<>();
+		for (AbstractField description : bag.getAllProperties()) {
+			describedNamespaces.add(getDescribedNamespace(description));
+		}
+		// add new descriptions from the other schema, if they describe a namespace not yet described by this schema
+		for (AbstractField description : new ArrayList<>(otherBag.getAllProperties())) {
+			String describedNamespace = getDescribedNamespace(description);
+			if (describedNamespace != null && describedNamespaces.add(describedNamespace)) {
+				bag.addProperty(description);
+			}
+		}
+	}
+
+	private String getDescribedNamespace(AbstractField description) {
+		if (description instanceof AbstractComplexProperty) {
+			AbstractField uri = ((AbstractComplexProperty) description).getProperty(PDFASchemaType.NAMESPACE_URI);
+			if (uri instanceof AbstractSimpleProperty) {
+				return ((AbstractSimpleProperty) uri).getStringValue();
+			}
+		}
+		return null;
 	}
 
 	public void attachExtensions(XMPMetadata metadata, boolean withZF, EStandard eStandard) {

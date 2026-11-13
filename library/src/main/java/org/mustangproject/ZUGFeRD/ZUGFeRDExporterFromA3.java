@@ -63,8 +63,10 @@ import org.apache.pdfbox.pdmodel.graphics.color.PDOutputIntent;
 import org.apache.xmpbox.XMPMetadata;
 import org.apache.xmpbox.schema.AdobePDFSchema;
 import org.apache.xmpbox.schema.DublinCoreSchema;
+import org.apache.xmpbox.schema.PDFAExtensionSchema;
 import org.apache.xmpbox.schema.PDFAIdentificationSchema;
 import org.apache.xmpbox.schema.XMPBasicSchema;
+import org.apache.xmpbox.schema.XMPSchema;
 import org.apache.xmpbox.type.ArrayProperty;
 import org.apache.xmpbox.type.BadFieldValueException;
 import org.apache.xmpbox.xml.DomXmpParser;
@@ -612,12 +614,45 @@ public class ZUGFeRDExporterFromA3 extends XRExporter implements IZUGFeRDExporte
 				getNamespaceForVersion(zfVersion), getPrefixForVersion(zfVersion),
 				getFilenameForVersion(zfVersion, xmlProvider.getProfile()), metaDataVersion);
 
-			metadata.addSchema(zf);
+			replaceSchema(metadata, zf);
 		}
 
 		XMPSchemaPDFAExtensions pdfaex = new XMPSchemaPDFAExtensions(this, metadata, zfVersion, attachZUGFeRDHeaders);
 		pdfaex.setZUGFeRDVersion(zfVersion);
-		metadata.addSchema(pdfaex);
+		mergePDFAExtensionSchema(metadata, pdfaex);
+	}
+
+	/**
+	 * Adds the schema to the metadata, replacing any schema of the same namespace.
+	 * The metadata may already contain such a schema if the XMP of the input PDF is retained (overwrite flag not set).
+	 *
+	 * @param metadata the metadata to attach to
+	 * @param schema   the schema to add
+	 */
+	protected void replaceSchema(XMPMetadata metadata, XMPSchema schema) {
+		for (XMPSchema existing : new ArrayList<>(metadata.getAllSchemas())) {
+			if (existing != schema && schema.getNamespace().equals(existing.getNamespace())) {
+				metadata.removeSchema(existing);
+			}
+		}
+		metadata.addSchema(schema);
+	}
+
+	/**
+	 * Adds the PDF/A extension schema to the metadata. If the metadata already contains PDF/A extension schemas
+	 * (XMP of the input PDF retained, overwrite flag not set), their schema descriptions for other namespaces are
+	 * taken over, so that the result contains exactly one PDF/A extension schema.
+	 *
+	 * @param metadata the metadata to attach to
+	 * @param pdfaex   the PDF/A extension schema to add
+	 */
+	protected void mergePDFAExtensionSchema(XMPMetadata metadata, XMPSchemaPDFAExtensions pdfaex) {
+		for (XMPSchema existing : new ArrayList<>(metadata.getAllSchemas())) {
+			if (existing != pdfaex && existing instanceof PDFAExtensionSchema) {
+				pdfaex.takeOverSchemaDescriptions((PDFAExtensionSchema) existing);
+			}
+		}
+		replaceSchema(metadata, pdfaex);
 	}
 
 	private void removeCidSet(PDDocument doc)
